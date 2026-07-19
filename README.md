@@ -21,6 +21,23 @@ headers for third-party origins.
 Deploying to Netlify also works out of the box (`netlify.toml` proxies
 `/api/*` at the edge); cam playback then streams straight from Surfline's CDN.
 
+### GitHub Pages (no server at all)
+
+The repo ships a workflow (`.github/workflows/pages.yml`) that publishes
+`public/` to GitHub Pages on every push — the site lands at
+`https://<user>.github.io/<repo>/`. If the first run fails with a Pages
+permission error, enable it once under **Settings → Pages → Source: GitHub
+Actions**, then re-run the workflow.
+
+Pages is static-only, so there is no proxy there. The app detects `*.github.io`
+and switches to **direct mode**: it calls `services.surfline.com` from the
+browser, retrying through a public CORS relay (`corsproxy.io`) if a call is
+blocked — swap `CORS_RELAY` at the top of `public/js/api.js` for your own
+relay, or empty it to disable. Live cams attempt the CDN stream directly and
+fall back to the cam's still image if the CDN refuses cross-origin playback.
+For bullet-proof cams and rewind, run `node server.js` on any Node host
+instead — the proxy makes every stream work.
+
 ## Features
 
 - **Every Surfline spot** — search by name, browse the world **map** (zoom in

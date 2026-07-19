@@ -52,6 +52,6 @@ document.addEventListener('keydown', (e) => {
 // -------------------------------------------------------- service worker
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* fine without */ });
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* fine without */ });
   });
 }

@@ -20,10 +20,10 @@ function loadLeaflet() {
   if (!leafletReady) {
     leafletReady = new Promise((resolve, reject) => {
       const css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = '/vendor/leaflet/leaflet.css';
+      css.rel = 'stylesheet'; css.href = 'vendor/leaflet/leaflet.css';
       document.head.appendChild(css);
       const s = document.createElement('script');
-      s.src = '/vendor/leaflet/leaflet.js';
+      s.src = 'vendor/leaflet/leaflet.js';
       s.onload = resolve; s.onerror = reject;
       document.head.appendChild(s);
     });

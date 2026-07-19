@@ -11,6 +11,20 @@
 import { demoForecast, demoSpotDetails, DEMO_SEARCH } from './demo.js';
 import { emit } from './state.js';
 
+// ---------------------------------------------------------------- hosting
+// Two hosting modes:
+//   proxy  — the bundled Node server (or Netlify redirects) exposes /api and
+//            /proxy on this origin. Default.
+//   direct — static-only hosts (GitHub Pages): talk to Surfline straight
+//            from the browser. If a direct call is blocked by CORS, retry
+//            once through CORS_RELAY and stick with it for the session.
+// Swap CORS_RELAY for your own relay (e.g. a Cloudflare Worker) or set it
+// to '' to disable third-party relaying entirely.
+export const HOSTING = /\.github\.io$/i.test(location.hostname) ? 'direct' : 'proxy';
+const API_ORIGIN = 'https://services.surfline.com';
+const CORS_RELAY = 'https://corsproxy.io/?url=';
+let useRelay = false;
+
 const mem = new Map();      // url -> {at, data}
 const inflight = new Map(); // url -> Promise
 
@@ -30,23 +44,44 @@ function qs(params) {
   return s ? `?${s}` : '';
 }
 
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new ApiError(res.status, url);
+  return res.json();
+}
+
 export async function apiGet(path, params, { ttl = 60_000 } = {}) {
-  const url = `/api${path}${qs(params)}`;
-  const hit = mem.get(url);
+  const key = `/api${path}${qs(params)}`;
+  const hit = mem.get(key);
   if (hit && Date.now() - hit.at < ttl) return hit.data;
-  if (inflight.has(url)) return inflight.get(url);
+  if (inflight.has(key)) return inflight.get(key);
 
   const p = (async () => {
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new ApiError(res.status, url);
-    const data = await res.json();
-    mem.set(url, { at: Date.now(), data });
-    try { sessionStorage.setItem(`pb:c:${url}`, JSON.stringify({ at: Date.now(), data })); } catch { /* full */ }
+    let data;
+    if (HOSTING === 'proxy') {
+      data = await fetchJson(key);
+    } else {
+      const upstream = `${API_ORIGIN}${path}${qs(params)}`;
+      if (useRelay && CORS_RELAY) {
+        data = await fetchJson(CORS_RELAY + encodeURIComponent(upstream));
+      } else {
+        try {
+          data = await fetchJson(upstream);
+        } catch (err) {
+          // TypeError = network/CORS block → retry once through the relay
+          if (err instanceof ApiError || !CORS_RELAY) throw err;
+          data = await fetchJson(CORS_RELAY + encodeURIComponent(upstream));
+          useRelay = true;
+        }
+      }
+    }
+    mem.set(key, { at: Date.now(), data });
+    try { sessionStorage.setItem(`pb:c:${key}`, JSON.stringify({ at: Date.now(), data })); } catch { /* full */ }
     setApiDown(false);
     return data;
-  })().finally(() => inflight.delete(url));
+  })().finally(() => inflight.delete(key));
 
-  inflight.set(url, p);
+  inflight.set(key, p);
   return p;
 }
 
@@ -238,8 +273,12 @@ export async function getMapSpots(bounds) {
 }
 
 // ------------------------------------------------------------------- media
+// In proxy mode media flows through /proxy (which also rewrites HLS
+// playlists); on static hosts we point straight at Surfline's CDN and let
+// per-feature fallbacks (still image, hidden rewind) absorb any CORS gaps.
 export function proxied(url) {
-  return url ? `/proxy?url=${encodeURIComponent(url)}` : '';
+  if (!url) return '';
+  return HOSTING === 'proxy' ? `/proxy?url=${encodeURIComponent(url)}` : url;
 }
 
 export async function probeUrl(url) {

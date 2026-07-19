@@ -15,7 +15,7 @@ function loadHls() {
   if (!hlsLoader) {
     hlsLoader = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = '/vendor/hls.min.js';
+      s.src = 'vendor/hls.min.js';
       s.onload = resolve; s.onerror = reject;
       document.head.appendChild(s);
     });
