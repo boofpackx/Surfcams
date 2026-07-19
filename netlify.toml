@@ -1,0 +1,18 @@
+# Optional: deploy the static app to Netlify with the API proxied at the edge.
+# Live cam playback (HLS) and rewind clips are fetched directly from Surfline's
+# CDN in this setup; if the CDN ever drops CORS headers, run `node server.js`
+# on any Node host instead — it proxies media too.
+
+[build]
+  publish = "public"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://services.surfline.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

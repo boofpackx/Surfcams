@@ -1,0 +1,13 @@
+{
+  "name": "paperbreak",
+  "version": "1.0.0",
+  "description": "A minimalist, paperwhite-style surf forecast & cam site powered by the (unofficial) Surfline API.",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
