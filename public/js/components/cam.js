@@ -182,16 +182,26 @@ export function createCamPlayer(container, spot) {
     const p = (n, l = 2) => String(n).padStart(l, '0');
     return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}00`;
   }
-  function patternUrl(tsSec) {
+  // Two clip-name patterns seen in the wild:
+  //   <base>.<YYYYMMDDTHHMMSS>.mp4        (UTC stamp)
+  //   <base>.<HHMM>.<YYYY-MM-DD>.mp4      (cam-local time)
+  function patternUrlUtc(tsSec) {
     return `${cam.rewindBaseUrl}.${utcStamp(tsSec)}.mp4`;
+  }
+  function patternUrlLocal(tsSec) {
+    const d = new Date(tsSec * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${cam.rewindBaseUrl}.${p(d.getHours())}${p(d.getMinutes())}.${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.mp4`;
   }
 
   async function discoverPattern() {
     if (!cam.rewindBaseUrl) return false;
     const nowAligned = Math.floor(Date.now() / 1000 / CLIP_SECONDS) * CLIP_SECONDS;
-    const tries = [2, 3, 5, 8, 12].map((n) => nowAligned - n * CLIP_SECONDS);
-    const results = await Promise.all(tries.map((t) => probeUrl(patternUrl(t))));
-    if (results.some(Boolean)) { probePattern = patternUrl; return true; }
+    const tries = [2, 3, 5, 8].map((n) => nowAligned - n * CLIP_SECONDS);
+    for (const fn of [patternUrlUtc, patternUrlLocal]) {
+      const results = await Promise.all(tries.map((t) => probeUrl(fn(t))));
+      if (results.some(Boolean)) { probePattern = fn; return true; }
+    }
     return false;
   }
 

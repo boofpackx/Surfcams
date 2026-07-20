@@ -1,7 +1,7 @@
 // Spot page: cam on top, then a sticky time readout with a scrub rail, the
 // synced chart stack, and per-day jump chips.
 
-import { getSpotDetails, getForecast } from '../api.js';
+import { getSpotDetails, getForecast, getMapSpots } from '../api.js';
 import { createCamPlayer } from '../components/cam.js';
 import { Timeline, createChartStack, createRail, nearest } from '../components/charts.js';
 import {
@@ -10,7 +10,38 @@ import {
 } from '../format.js';
 import { fmtSurfRange, fmtHeight, fmtSpeed, fmtTemp } from '../units.js';
 import { isFavorite, toggleFavorite, pushRecent, on } from '../state.js';
-import { replaceQuery, parseHash } from '../router.js';
+import { replaceQuery, parseHash, href } from '../router.js';
+
+// Spots without a cam say so explicitly (silence looks like a bug) and
+// point at the closest spots that do have one.
+async function showNoCamNote(root, spot) {
+  root.innerHTML = `
+    <div class="nocam">
+      <span class="small muted">No public cam at this spot.</span>
+      <span class="small nocam-nearby faint">Looking for cams nearby…</span>
+    </div>`;
+  const slot = root.querySelector('.nocam-nearby');
+  if (spot.lat == null) { slot.textContent = ''; return; }
+  try {
+    const spots = await getMapSpots({
+      north: spot.lat + 0.6, south: spot.lat - 0.6,
+      east: spot.lon + 0.7, west: spot.lon - 0.7,
+    });
+    if (!slot.isConnected) return;
+    const withCams = spots
+      .filter((s) => s.hasCam && s.id !== spot.id && s.lat != null)
+      .map((s) => ({ ...s, d: Math.hypot(s.lat - spot.lat, s.lon - spot.lon) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 3);
+    slot.innerHTML = withCams.length
+      ? 'Nearest cams: ' + withCams
+        .map((s) => `<a href="${href(['spot', s.id], { name: s.name })}">${esc(s.name)}</a>`)
+        .join(' · ')
+      : 'No cams within ~60 km — spots with cams show a CAM badge in search.';
+  } catch {
+    if (slot.isConnected) slot.textContent = '';
+  }
+}
 
 export async function renderSpot(container, { params, query }) {
   const spotId = params.id;
@@ -101,6 +132,7 @@ export async function renderSpot(container, { params, query }) {
   const camSpot = { ...spot };
   const cam = createCamPlayer(container.querySelector('#cam-root'), camSpot);
   if (cam) cleanups.push(() => cam.destroy());
+  else if (!spot.demo) showNoCamNote(container.querySelector('#cam-root'), spot);
 
   // ------------------------------------------------------------- forecast
   const fc = await getForecast(spotId, { days: 6, intervalHours: 1 });
