@@ -76,6 +76,12 @@ export async function renderMap(container, { query }) {
   const offTheme = on('theme', () => {
     map.removeLayer(tiles);
     tiles = L.tileLayer(TILES[theme()], { attribution: ATTRIB, maxZoom: 18 }).addTo(map);
+    // re-tint existing markers for the new theme's palette
+    const styles = getComputedStyle(document.documentElement);
+    seen.forEach((m) => {
+      const color = styles.getPropertyValue(cssVar(m._pbKey)).trim() || '#888';
+      m.setStyle({ color, fillColor: color });
+    });
   });
 
   const hint = container.querySelector('#map-hint');
@@ -111,6 +117,7 @@ export async function renderMap(container, { query }) {
         color, weight: s.hasCam ? 2.5 : 1.5,
         fillColor: color, fillOpacity: 0.55,
       });
+      m._pbKey = s.ratingKey;
       m.bindTooltip(
         `<span class="pb-spot-tip">${esc(s.name)}</span>` +
         (s.surf ? `<br>${esc(fmtSurfRange(s.surf.min, s.surf.max, s.surf.plus))} · ${esc(ratingLabel(s.ratingKey))}` : '') +

@@ -10,7 +10,7 @@ import {
 } from '../format.js';
 import { fmtSurfRange, fmtHeight, fmtSpeed, fmtTemp } from '../units.js';
 import { isFavorite, toggleFavorite, pushRecent, on } from '../state.js';
-import { replaceQuery } from '../router.js';
+import { replaceQuery, parseHash } from '../router.js';
 
 export async function renderSpot(container, { params, query }) {
   const spotId = params.id;
@@ -77,7 +77,11 @@ export async function renderSpot(container, { params, query }) {
   pushRecent({ id: spotId, name: spot.name, sub: spot.sub });
 
   const favBtn = container.querySelector('#fav-btn');
-  const syncFav = () => favBtn.classList.toggle('on', isFavorite(spotId));
+  const syncFav = () => {
+    const on = isFavorite(spotId);
+    favBtn.classList.toggle('on', on);
+    favBtn.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+  };
   syncFav();
   favBtn.addEventListener('click', () => {
     const added = toggleFavorite({ id: spotId, name: spot.name, sub: spot.sub });
@@ -138,6 +142,9 @@ export async function renderSpot(container, { params, query }) {
   if (fc.demo) roNote.textContent = 'sample';
 
   const syncUrl = debounce(() => {
+    // the debounce can fire after navigating away — never touch another view's URL
+    const { path } = parseHash();
+    if (path[0] !== 'spot' || path[1] !== spotId) return;
     replaceQuery((q) => q.set('t', String(Math.round(tl.cursor))));
   }, 400);
 

@@ -18,7 +18,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { Readable } = require('stream');
+const { Readable, pipeline } = require('stream');
 
 const PORT = Number(process.env.PORT) || 8080;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -169,7 +169,9 @@ async function handleProxy(req, res, reqUrl) {
   }
   res.writeHead(up.status, outHeaders);
   if (req.method === 'HEAD' || !up.body) { res.end(); return; }
-  Readable.fromWeb(up.body).pipe(res);
+  // pipeline (not .pipe) so an upstream reset / client abort mid-stream
+  // destroys both sides instead of raising an unhandled 'error' event.
+  pipeline(Readable.fromWeb(up.body), res, () => {});
 }
 
 // ------------------------------------------------------------------ static
@@ -196,21 +198,31 @@ function serveStatic(req, res, reqUrl) {
         ? 'public, max-age=604800, immutable'
         : 'public, max-age=300',
   });
-  fs.createReadStream(filePath).pipe(res);
+  pipeline(fs.createReadStream(filePath), res, () => {});
 }
 
 // ------------------------------------------------------------------ server
+// Async handlers must never become unhandled rejections — one flaky
+// upstream body would otherwise kill the whole process.
+function fail(res) {
+  return (err) => {
+    if (!res.headersSent) { res.writeHead(502, { 'Content-Type': 'text/plain' }); res.end('upstream error'); }
+    else res.destroy();
+  };
+}
+
 const server = http.createServer((req, res) => {
-  const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405); res.end(); return;
   }
   try {
-    if (reqUrl.pathname.startsWith('/api/')) return void handleApi(req, res, reqUrl);
-    if (reqUrl.pathname === '/proxy') return void handleProxy(req, res, reqUrl);
+    const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (reqUrl.pathname.startsWith('/api/')) return void handleApi(req, res, reqUrl).catch(fail(res));
+    if (reqUrl.pathname === '/proxy') return void handleProxy(req, res, reqUrl).catch(fail(res));
     return void serveStatic(req, res, reqUrl);
   } catch (err) {
-    res.writeHead(500); res.end('server error');
+    if (!res.headersSent) res.writeHead(500);
+    res.end('server error');
   }
 });
 

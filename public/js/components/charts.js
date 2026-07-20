@@ -419,6 +419,12 @@ function attachGestures(elem, tl, getW) {
       tl.setView(down1.t0 + dt, down1.t1 + dt);
     }
   }
+  function onCancel(e) {
+    // an aborted gesture (browser took over for page scroll) is not a tap
+    pointers.delete(e.pointerId);
+    moved = true;
+    if (pointers.size === 0) down1 = null;
+  }
   function onUp(e) {
     pointers.delete(e.pointerId);
     if (pointers.size === 1) {
@@ -448,7 +454,7 @@ function attachGestures(elem, tl, getW) {
   elem.addEventListener('pointermove', onMove);
   elem.addEventListener('pointermove', onMove1);
   elem.addEventListener('pointerup', onUp);
-  elem.addEventListener('pointercancel', onUp);
+  elem.addEventListener('pointercancel', onCancel);
   elem.addEventListener('wheel', onWheel, { passive: false });
   elem.addEventListener('dblclick', onDbl);
   return () => {
@@ -457,7 +463,7 @@ function attachGestures(elem, tl, getW) {
     elem.removeEventListener('pointermove', onMove);
     elem.removeEventListener('pointermove', onMove1);
     elem.removeEventListener('pointerup', onUp);
-    elem.removeEventListener('pointercancel', onUp);
+    elem.removeEventListener('pointercancel', onCancel);
     elem.removeEventListener('wheel', onWheel);
     elem.removeEventListener('dblclick', onDbl);
   };
