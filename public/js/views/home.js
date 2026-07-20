@@ -145,9 +145,10 @@ export async function renderHome(container) {
   container.querySelectorAll('[data-pop]').forEach((b) => {
     b.addEventListener('click', async () => {
       b.classList.add('on');
-      const { spots } = await searchSpots(b.dataset.pop);
+      const { spots, demo } = await searchSpots(b.dataset.pop);
       b.classList.remove('on');
       if (spots.length) navigate(['spot', spots[0].id], { name: spots[0].name });
+      else if (demo) toast('Surfline unreachable right now — try again in a moment');
       else toast('Not found — try the search box');
     });
   });

@@ -16,14 +16,37 @@ import { emit } from './state.js';
 //   proxy  — the bundled Node server (or Netlify redirects) exposes /api and
 //            /proxy on this origin. Default.
 //   direct — static-only hosts (GitHub Pages): talk to Surfline straight
-//            from the browser. If a direct call is blocked by CORS, retry
-//            once through CORS_RELAY and stick with it for the session.
-// Swap CORS_RELAY for your own relay (e.g. a Cloudflare Worker) or set it
-// to '' to disable third-party relaying entirely.
-export const HOSTING = /\.github\.io$/i.test(location.hostname) ? 'direct' : 'proxy';
+//            from the browser. Surfline doesn't send CORS headers for
+//            third-party origins, so each request walks a route chain —
+//            direct, then public CORS relays — and the first route that
+//            returns valid JSON is remembered for the session.
+//
+// Best long-term option: deploy workers/relay.js to Cloudflare (free) and
+// point the app at it once via
+//   localStorage.setItem('pb:relay', 'https://<your-worker>.workers.dev/?url=')
+// A `pb:hosting` localStorage key ('direct' | 'proxy') overrides detection.
+function detectHosting() {
+  try {
+    const o = localStorage.getItem('pb:hosting');
+    if (o === 'direct' || o === 'proxy') return o;
+  } catch { /* */ }
+  return /\.github\.io$/i.test(location.hostname) ? 'direct' : 'proxy';
+}
+export const HOSTING = detectHosting();
 const API_ORIGIN = 'https://services.surfline.com';
-const CORS_RELAY = 'https://corsproxy.io/?url=';
-let useRelay = false;
+
+const RELAYS = [
+  (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
+];
+function customRelay() {
+  try {
+    const r = localStorage.getItem('pb:relay');
+    return r ? (u) => r + encodeURIComponent(u) : null;
+  } catch { return null; }
+}
+let stickyRoute = null; // last route that produced valid JSON this session
 
 const mem = new Map();      // url -> {at, data}
 const inflight = new Map(); // url -> Promise
@@ -44,10 +67,45 @@ function qs(params) {
   return s ? `?${s}` : '';
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+async function fetchJson(url, timeoutMs = 15_000) {
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined,
+  });
   if (!res.ok) throw new ApiError(res.status, url);
-  return res.json();
+  const text = await res.text();
+  try { return JSON.parse(text); } catch {
+    throw new ApiError(598, url); // a relay answered 200 with a non-JSON page
+  }
+}
+
+// Walk the route chain until one returns valid JSON. The winning route is
+// tried first on subsequent calls; an upstream 4xx delivered through the
+// known-good route is authoritative (a genuinely missing endpoint, not a
+// broken route), so it propagates instead of burning time on other routes.
+async function directGet(upstream) {
+  const routes = new Set();
+  if (stickyRoute) routes.add(stickyRoute);
+  const custom = customRelay();
+  if (custom) routes.add(custom);
+  routes.add((u) => u); // plain direct call, in case Surfline allows it
+  for (const r of RELAYS) routes.add(r);
+
+  let lastErr = null;
+  for (const route of routes) {
+    try {
+      const data = await fetchJson(route(upstream), 9_000);
+      stickyRoute = route;
+      return data;
+    } catch (err) {
+      if (route === stickyRoute && err instanceof ApiError
+        && err.status >= 400 && err.status < 500 && err.status !== 429 && err.status !== 598) {
+        throw err;
+      }
+      lastErr = err;
+    }
+  }
+  throw lastErr || new ApiError(0, upstream);
 }
 
 export async function apiGet(path, params, { ttl = 60_000 } = {}) {
@@ -57,24 +115,9 @@ export async function apiGet(path, params, { ttl = 60_000 } = {}) {
   if (inflight.has(key)) return inflight.get(key);
 
   const p = (async () => {
-    let data;
-    if (HOSTING === 'proxy') {
-      data = await fetchJson(key);
-    } else {
-      const upstream = `${API_ORIGIN}${path}${qs(params)}`;
-      if (useRelay && CORS_RELAY) {
-        data = await fetchJson(CORS_RELAY + encodeURIComponent(upstream));
-      } else {
-        try {
-          data = await fetchJson(upstream);
-        } catch (err) {
-          // TypeError = network/CORS block → retry once through the relay
-          if (err instanceof ApiError || !CORS_RELAY) throw err;
-          data = await fetchJson(CORS_RELAY + encodeURIComponent(upstream));
-          useRelay = true;
-        }
-      }
-    }
+    const data = HOSTING === 'proxy'
+      ? await fetchJson(key)
+      : await directGet(`${API_ORIGIN}${path}${qs(params)}`);
     mem.set(key, { at: Date.now(), data });
     try { sessionStorage.setItem(`pb:c:${key}`, JSON.stringify({ at: Date.now(), data })); } catch { /* full */ }
     setApiDown(false);

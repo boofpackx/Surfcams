@@ -4,7 +4,7 @@
 // the worker's own directory, so this works at a domain root *and* under a
 // subpath (GitHub Pages).
 
-const VERSION = 'pb-v2';
+const VERSION = 'pb-v3';
 const BASE = new URL('./', self.location).pathname; // '/' or '/Surfcams/'
 const SHELL = [
   '', 'index.html', 'css/main.css', 'manifest.webmanifest', 'icons/icon.svg',

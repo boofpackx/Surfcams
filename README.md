@@ -30,13 +30,21 @@ permission error, enable it once under **Settings → Pages → Source: GitHub
 Actions**, then re-run the workflow.
 
 Pages is static-only, so there is no proxy there. The app detects `*.github.io`
-and switches to **direct mode**: it calls `services.surfline.com` from the
-browser, retrying through a public CORS relay (`corsproxy.io`) if a call is
-blocked — swap `CORS_RELAY` at the top of `public/js/api.js` for your own
-relay, or empty it to disable. Live cams attempt the CDN stream directly and
-fall back to the cam's still image if the CDN refuses cross-origin playback.
-For bullet-proof cams and rewind, run `node server.js` on any Node host
-instead — the proxy makes every stream work.
+and switches to **direct mode**: each API call walks a route chain — straight
+to `services.surfline.com`, then through public CORS relays (allorigins,
+corsproxy.io, codetabs) — and remembers the first route that answers with
+valid JSON. Public relays are best-effort; for a relay you own (recommended,
+~3 minutes, free), deploy `workers/relay.js` to Cloudflare Workers and run
+this once in your browser's console on the site:
+
+```js
+localStorage.setItem('pb:relay', 'https://<your-worker>.workers.dev/?url=')
+```
+
+Live cams attempt the CDN stream directly and fall back to the cam's still
+image if the CDN refuses cross-origin playback. For bullet-proof cams and
+rewind, run `node server.js` on any Node host instead — the proxy makes
+every stream work.
 
 ## Features
 
